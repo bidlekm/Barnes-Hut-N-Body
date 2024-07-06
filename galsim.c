@@ -7,19 +7,11 @@
 #include <stdbool.h>
 #include <omp.h>
 
-double theta_max = 0.5;
+double theta_max;
 const double epsilon0 = 0.001;
 const float circleRadius = 0.01, circleColor = 0;
 const int windowWidth = 800;
 double G = 100.0;
-
-typedef struct Particle
-{
-    double *posX;
-    double *posY;
-    double *velX;
-    double *velY;
-} Particle;
 
 typedef struct Quad
 {
@@ -29,149 +21,115 @@ typedef struct Quad
     double botRightY;
     double centerOfMassX;
     double centerOfMassY;
-    Particle *particle;
+    double *posX, *posY, *velX, *velY;
     double *particleMass;
     double quadMass;
     struct Quad *topLeftTree;
     struct Quad *topRightTree;
     struct Quad *botLeftTree;
     struct Quad *botRightTree;
+    bool isLeaf;
 } Quad;
 
-static double get_wall_seconds()
+void insert(Quad **quad, double *restrict posX, double *restrict posY, double *restrict velX, double *restrict velY,
+            double *mass, const double topLeftX, const double topLeftY, const double botRightX, const double botRightY)
 {
-    struct timeval tv;
-    gettimeofday(&tv, NULL);
-    double seconds = tv.tv_sec + (double)tv.tv_usec / 1000000;
-    return seconds;
-}
-
-void insert(Quad *quad, Particle *particle, double *mass)
-{
-    if (quad->particle == NULL && quad->topLeftTree == NULL && quad->topRightTree == NULL && quad->botLeftTree == NULL &&
-        quad->botRightTree == NULL)
+    if (*quad == NULL)
     {
-        quad->particle = particle;
-        quad->particleMass = mass;
+        *quad = (Quad *)malloc(sizeof(Quad));
+        (*quad)->topLeftX = topLeftX;
+        (*quad)->topLeftY = topLeftY;
+        (*quad)->botRightX = botRightX;
+        (*quad)->botRightY = botRightY;
+
+        (*quad)->posX = posX;
+        (*quad)->posY = posY;
+        (*quad)->velX = velX;
+        (*quad)->velY = velY;
+        (*quad)->particleMass = mass;
+        (*quad)->isLeaf = true;
+
+        (*quad)->topLeftTree = NULL;
+        (*quad)->topRightTree = NULL;
+        (*quad)->botLeftTree = NULL;
+        (*quad)->botRightTree = NULL;
         return;
     }
     else
     {
-        double midX = (quad->topLeftX + quad->botRightX) / 2;
-        double midY = (quad->topLeftY + quad->botRightY) / 2;
+        double midX = ((*quad)->topLeftX + (*quad)->botRightX) / 2;
+        double midY = ((*quad)->topLeftY + (*quad)->botRightY) / 2;
 
-        if (*particle->posX <= midX)
+        if ((*quad)->isLeaf == true)
         {
-            if (*particle->posY <= midY)
+            // INSERT OLD PARTICLE
+            double *oldParticleMass = (*quad)->particleMass;
+            double *oldPosX = (*quad)->posX;
+            double *oldPosY = (*quad)->posY;
+            double *oldVelX = (*quad)->velX;
+            double *oldVelY = (*quad)->velY;
+            (*quad)->posX = NULL;
+            (*quad)->posY = NULL;
+            (*quad)->velX = NULL;
+            (*quad)->velY = NULL;
+            (*quad)->particleMass = NULL;
+
+            if (*oldPosX <= midX)
             {
-                if (quad->botLeftTree == NULL)
+                if (*oldPosY <= midY)
                 {
-                    Quad *newQuad = (Quad *)malloc(sizeof(Quad));
-                    newQuad->topLeftX = quad->topLeftX;
-                    newQuad->topLeftY = midY;
-                    newQuad->botRightX = midX;
-                    newQuad->botRightY = quad->botRightY;
-                    newQuad->quadMass = 0;
-                    newQuad->particle = NULL;
-                    newQuad->particleMass = NULL;
-                    newQuad->centerOfMassX = 0;
-                    newQuad->centerOfMassY = 0;
-                    newQuad->topLeftTree = NULL;
-                    newQuad->botRightTree = NULL;
-                    newQuad->topRightTree = NULL;
-                    newQuad->botLeftTree = NULL;
-                    quad->botLeftTree = newQuad;
+                    insert(&(*quad)->botLeftTree, oldPosX, oldPosY, oldVelX, oldVelY, oldParticleMass, (*quad)->topLeftX, midY, midX, (*quad)->botRightY);
                 }
-                insert(quad->botLeftTree, particle, mass);
+                else
+                {
+                    insert(&(*quad)->topLeftTree, oldPosX, oldPosY, oldVelX, oldVelY, oldParticleMass, (*quad)->topLeftX, (*quad)->topLeftY, midX, midY);
+                }
             }
             else
             {
-                if (quad->topLeftTree == NULL)
+                if (*oldPosY <= midY)
                 {
-                    Quad *newQuad = (Quad *)malloc(sizeof(Quad));
-                    newQuad->topLeftX = quad->topLeftX;
-                    newQuad->topLeftY = quad->topLeftY;
-                    newQuad->botRightX = midX;
-                    newQuad->botRightY = midY;
-                    newQuad->quadMass = 0;
-                    newQuad->particle = NULL;
-                    newQuad->particleMass = NULL;
-                    newQuad->centerOfMassX = 0;
-                    newQuad->centerOfMassY = 0;
-                    newQuad->topLeftTree = NULL;
-                    newQuad->botRightTree = NULL;
-                    newQuad->topRightTree = NULL;
-                    newQuad->botLeftTree = NULL;
-                    quad->topLeftTree = newQuad;
+                    insert(&(*quad)->botRightTree, oldPosX, oldPosY, oldVelX, oldVelY, oldParticleMass, midX, midY, (*quad)->botRightX, (*quad)->botRightY);
                 }
-                insert(quad->topLeftTree, particle, mass);
+                else
+                {
+                    insert(&(*quad)->topRightTree, oldPosX, oldPosY, oldVelX, oldVelY, oldParticleMass, midX, (*quad)->topLeftY, (*quad)->botRightX, midY);
+                }
+            }
+            (*quad)->isLeaf = false;
+        }
+        if (*posX <= midX)
+        {
+            if (*posY <= midY)
+            {
+                insert(&(*quad)->botLeftTree, posX, posY, velX, velY, mass, (*quad)->topLeftX, midY, midX, (*quad)->botRightY);
+            }
+            else
+            {
+                insert(&(*quad)->topLeftTree, posX, posY, velX, velY, mass, (*quad)->topLeftX, (*quad)->topLeftY, midX, midY);
             }
         }
         else
         {
-            if (*particle->posY <= midY)
+            if (*posY <= midY)
             {
-                if (quad->botRightTree == NULL)
-                {
-                    Quad *newQuad = (Quad *)malloc(sizeof(Quad));
-                    newQuad->topLeftX = midX;
-                    newQuad->topLeftY = midY;
-                    newQuad->botRightX = quad->botRightX;
-                    newQuad->botRightY = quad->botRightY;
-                    newQuad->quadMass = 0;
-                    newQuad->particle = NULL;
-                    newQuad->particleMass = NULL;
-                    newQuad->centerOfMassX = 0;
-                    newQuad->centerOfMassY = 0;
-                    newQuad->topLeftTree = NULL;
-                    newQuad->botRightTree = NULL;
-                    newQuad->topRightTree = NULL;
-                    newQuad->botLeftTree = NULL;
-                    quad->botRightTree = newQuad;
-                }
-                insert(quad->botRightTree, particle, mass);
+                insert(&(*quad)->botRightTree, posX, posY, velX, velY, mass, midX, midY, (*quad)->botRightX, (*quad)->botRightY);
             }
             else
             {
-                if (quad->topRightTree == NULL)
-                {
-                    Quad *newQuad = (Quad *)malloc(sizeof(Quad));
-                    newQuad->topLeftX = midX;
-                    newQuad->topLeftY = quad->topLeftY;
-                    newQuad->botRightX = quad->botRightX;
-                    newQuad->botRightY = midY;
-                    newQuad->quadMass = 0;
-                    newQuad->particle = NULL;
-                    newQuad->particleMass = NULL;
-                    newQuad->centerOfMassX = 0;
-                    newQuad->centerOfMassY = 0;
-                    newQuad->topLeftTree = NULL;
-                    newQuad->botRightTree = NULL;
-                    newQuad->topRightTree = NULL;
-                    newQuad->botLeftTree = NULL;
-                    quad->topRightTree = newQuad;
-                }
-                insert(quad->topRightTree, particle, mass);
+                insert(&(*quad)->topRightTree, posX, posY, velX, velY, mass, midX, (*quad)->topLeftY, (*quad)->botRightX, midY);
             }
-        }
-
-        if (quad->particle != NULL)
-        {
-            Particle *oldParticle = quad->particle;
-            double *oldParticleMass = quad->particleMass;
-            quad->particle = NULL;
-            quad->particleMass = NULL;
-            insert(quad, oldParticle, oldParticleMass);
         }
     }
 }
 
 double updateMass(Quad *restrict quad)
 {
-    if (quad->particle != NULL)
+    // TODO: same thing as before, it was quad->particle
+    if (quad->isLeaf)
     {
-        quad->centerOfMassX = *quad->particle->posX;
-        quad->centerOfMassY = *quad->particle->posY;
+        quad->centerOfMassX = *quad->posX;
+        quad->centerOfMassY = *quad->posY;
         quad->quadMass = *quad->particleMass;
         return quad->quadMass;
     }
@@ -216,10 +174,10 @@ double updateMass(Quad *restrict quad)
     return totalMass;
 }
 
-void calculateForcePair(const Quad *restrict quad, const Particle *restrict particle, double *restrict forceX, double *restrict forceY, const double mass)
+void calculateForcePair(const Quad *restrict quad, const double *restrict posX, const double *restrict posY, const double *restrict velX, const double *restrict velY, double *restrict forceX, double *restrict forceY, const double mass)
 {
-    double dx = *particle->posX - quad->centerOfMassX;
-    double dy = *particle->posY - quad->centerOfMassY;
+    double dx = *posX - quad->centerOfMassX;
+    double dy = *posY - quad->centerOfMassY;
     double distSquare = (dx * dx) + (dy * dy);
     double dist = sqrt(distSquare) + epsilon0;
     double F_scalar = -G * mass * quad->quadMass / (dist * dist * dist);
@@ -227,40 +185,41 @@ void calculateForcePair(const Quad *restrict quad, const Particle *restrict part
     *forceY += F_scalar * dy;
 }
 
-void calculateForces(const Quad *restrict quad, const Particle *restrict particle, double *restrict forceX, double *restrict forceY, const double mass)
+void calculateForces(const Quad *restrict quad, const double *restrict posX, const double *restrict posY, const double *restrict velX, const double *restrict velY, double *restrict forceX, double *restrict forceY, const double mass)
 {
-    if (quad->topLeftTree == NULL && quad->topRightTree == NULL && quad->botLeftTree == NULL &&
-        quad->botRightTree == NULL && quad->particle != NULL && quad->particle != particle)
+    // TODO: SAME AS BEFORE
+    if (quad->isLeaf && quad->posX != NULL && quad->posX != posX)
     {
-        calculateForcePair(quad, particle, forceX, forceY, mass);
+        calculateForcePair(quad, posX, posY, velX, velY, forceX, forceY, mass);
     }
     else
     {
-        double dx = *particle->posX - quad->centerOfMassX;
-        double dy = *particle->posY - quad->centerOfMassY;
+        double dx = *posX - quad->centerOfMassX;
+        double dy = *posY - quad->centerOfMassY;
         double distSquare = (dx * dx) + (dy * dy);
         double theta = (quad->botRightX - quad->topLeftX) / sqrt(distSquare);
         if (theta <= theta_max)
         {
-            calculateForcePair(quad, particle, forceX, forceY, mass);
+            calculateForcePair(quad, posX, posY, velX, velY, forceX, forceY, mass);
         }
         else
         {
+
             if (quad->topLeftTree != NULL)
             {
-                calculateForces(quad->topLeftTree, particle, forceX, forceY, mass);
+                calculateForces(quad->topLeftTree, posX, posY, velX, velY, forceX, forceY, mass);
             }
             if (quad->topRightTree != NULL)
             {
-                calculateForces(quad->topRightTree, particle, forceX, forceY, mass);
+                calculateForces(quad->topRightTree, posX, posY, velX, velY, forceX, forceY, mass);
             }
             if (quad->botLeftTree != NULL)
             {
-                calculateForces(quad->botLeftTree, particle, forceX, forceY, mass);
+                calculateForces(quad->botLeftTree, posX, posY, velX, velY, forceX, forceY, mass);
             }
             if (quad->botRightTree != NULL)
             {
-                calculateForces(quad->botRightTree, particle, forceX, forceY, mass);
+                calculateForces(quad->botRightTree, posX, posY, velX, velY, forceX, forceY, mass);
             }
         }
     }
@@ -280,7 +239,7 @@ void destroyQuadtree(Quad *quad)
     quad = NULL;
 }
 
-int readParticlesFromFile(const char *filename, Particle *particles, double *restrict posX, double *restrict posY, double *restrict velX,
+int readParticlesFromFile(const char *filename, double *restrict posX, double *restrict posY, double *restrict velX,
                           double *restrict velY, double *restrict mass, double *restrict inv_mass, double *restrict brightness, const int N)
 {
     FILE *inputFile = fopen(filename, "rb");
@@ -298,10 +257,6 @@ int readParticlesFromFile(const char *filename, Particle *particles, double *res
         reads += fread(&(velX[i]), sizeof(double), 1, inputFile);
         reads += fread(&(velY[i]), sizeof(double), 1, inputFile);
         reads += fread(&(brightness[i]), sizeof(double), 1, inputFile);
-        particles[i].posX = &posX[i];
-        particles[i].posY = &posY[i];
-        particles[i].velX = &velX[i];
-        particles[i].velY = &velY[i];
 
         inv_mass[i] = 1 / mass[i];
     }
@@ -330,7 +285,6 @@ void writeParticlesToFile(double *restrict posX, double *restrict posY, double *
     }
 
     fclose(outputFile);
-    // printf("Particles written to result.gal successfully\n");
 }
 
 void printAllParticles(double *restrict posX, double *restrict posY, double *restrict velX, double *restrict velY,
@@ -343,10 +297,29 @@ void printAllParticles(double *restrict posX, double *restrict posY, double *res
     }
 }
 
+void printQuadtree(const Quad *quad, int depth)
+{
+    if (quad == NULL)
+        return;
+
+    if (quad->posX != NULL)
+    {
+        printf("Position: (%lf, %lf)\tMass: %lf\n", *quad->posX, *quad->posY, *(quad->particleMass));
+    }
+    if (quad->topLeftTree != NULL)
+        printQuadtree(quad->topLeftTree, depth + 1);
+    if (quad->topRightTree != NULL)
+        printQuadtree(quad->topRightTree, depth + 1);
+    if (quad->botLeftTree != NULL)
+        printQuadtree(quad->botLeftTree, depth + 1);
+    if (quad->botRightTree != NULL)
+        printQuadtree(quad->botRightTree, depth + 1);
+}
+
 int main(int argc, char **argv)
 {
-    double startTime1 = get_wall_seconds();
-    if (argc != 5)
+    double startTime1 = omp_get_wtime();
+    if (argc != 7)
     {
         printf("Not enough parameters, only %d provided\n", argc);
         return 1;
@@ -356,20 +329,20 @@ int main(int argc, char **argv)
     char *filename = argv[2];
     int nsteps;
     double delta_t;
+    int num_threads;
     if (sscanf(argv[1], "%d", &N) != 1 || sscanf(argv[3], "%d", &nsteps) != 1 ||
-        sscanf(argv[4], "%lf", &delta_t) != 1)
+        sscanf(argv[4], "%lf", &delta_t) != 1 || sscanf(argv[5], "%lf", &theta_max) != 1 || sscanf(argv[6], "%d", &num_threads) != 1)
     {
         printf("Error with given parameters.\n");
         return 1;
     }
-    omp_set_num_threads(8);
+    omp_set_num_threads(num_threads);
     G = 100.0 / N;
 
-    Particle *particles = (Particle *)malloc(N * sizeof(Particle));
-    double *posX = (double *)malloc(N * sizeof(Particle));
-    double *posY = (double *)malloc(N * sizeof(Particle));
-    double *velX = (double *)malloc(N * sizeof(Particle));
-    double *velY = (double *)malloc(N * sizeof(Particle));
+    double *posX = (double *)malloc(N * sizeof(double));
+    double *posY = (double *)malloc(N * sizeof(double));
+    double *velX = (double *)malloc(N * sizeof(double));
+    double *velY = (double *)malloc(N * sizeof(double));
     double *mass = (double *)malloc(N * sizeof(double));
     double *inv_mass = (double *)malloc(N * sizeof(double));
     double *brightness = (double *)malloc(N * sizeof(double));
@@ -377,14 +350,13 @@ int main(int argc, char **argv)
     double *forcesY = (double *)calloc(N, sizeof(double));
     double *accelerationsX = (double *)calloc(N, sizeof(double));
     double *accelerationsY = (double *)calloc(N, sizeof(double));
-    if (readParticlesFromFile(filename, particles, posX, posY, velX, velY, mass, inv_mass, brightness, N) != 6 * N)
+    if (readParticlesFromFile(filename, posX, posY, velX, velY, mass, inv_mass, brightness, N) != 6 * N)
     {
         printf("Could not read in all the data from %s\n", filename);
         free(posX);
         free(posY);
         free(velX);
         free(velY);
-        free(particles);
         free(forcesX);
         free(forcesY);
         free(mass);
@@ -394,63 +366,37 @@ int main(int argc, char **argv)
         free(brightness);
         return -1;
     }
-
-    Quad *root = (Quad *)malloc(sizeof(Quad));
-    root->topLeftX = 0.0;
-    root->topLeftY = 1.0;
-    root->botRightX = 1.0;
-    root->botRightY = 0.0;
-    root->quadMass = 0;
-    root->centerOfMassX = 0;
-    root->centerOfMassY = 0;
-    root->particle = NULL;
-    root->particleMass = NULL;
-    root->topLeftTree = NULL;
-    root->botRightTree = NULL;
-    root->botLeftTree = NULL;
-    root->topRightTree = NULL;
-    for (int i = 0; i < N; i++)
-    {
-        insert(root, &particles[i], &mass[i]);
-    }
-    updateMass(root);
-#pragma omp parallel for
-    for (int i = 0; i < N; i++)
-    {
-        calculateForces(root, &particles[i], &forcesX[i], &forcesY[i], mass[i]);
-    }
-    destroyQuadtree(root);
-
+    //     Quad *root = NULL;
+    //     for (int i = 0; i < N; i++)
+    //     {
+    //         insert(&root, &posX[i], &posY[i], &velX[i], &velY[i], &mass[i], 0.0, 1.0, 1.0, 0.0);
+    //     }
+    //     updateMass(root);
+    //     printQuadtree(root, 1);
+    // #pragma omp parallel for schedule(dynamic)
+    //     for (int i = 0; i < N; i++)
+    //     {
+    //         calculateForces(root, &posX[i], &posY[i], &velX[i], &velY[i], &forcesX[i], &forcesY[i], mass[i]);
+    //     }
+    //     destroyQuadtree(root);
+    //     root = NULL;
     for (int step = 0; step < nsteps; step++)
     {
-#pragma omp parallel for
-        for (int i = 0; i < N; i++)
-        {
-            accelerationsX[i] = forcesX[i] * inv_mass[i];
-            accelerationsY[i] = forcesY[i] * inv_mass[i];
-            *particles[i].posX += delta_t * (*particles[i].velX) + 0.5 * delta_t * delta_t * accelerationsX[i];
-            *particles[i].posY += delta_t * (*particles[i].velY) + 0.5 * delta_t * delta_t * accelerationsY[i];
-        }
+        // #pragma omp parallel for
+        //         for (int i = 0; i < N; i++)
+        //         {
+        //             accelerationsX[i] = forcesX[i] * inv_mass[i];
+        //             accelerationsY[i] = forcesY[i] * inv_mass[i];
+        //             posX[i] += delta_t * (velX[i]) + 0.5 * delta_t * delta_t * accelerationsX[i];
+        //             posY[i] += delta_t * (velY[i]) + 0.5 * delta_t * delta_t * accelerationsY[i];
+        //         }
         memset(forcesX, 0, N * sizeof(double));
         memset(forcesY, 0, N * sizeof(double));
-        Quad *root = (Quad *)malloc(sizeof(Quad));
-        root->topLeftX = 0.0;
-        root->topLeftY = 1.0;
-        root->botRightX = 1.0;
-        root->botRightY = 0.0;
-        root->quadMass = 0;
-        root->centerOfMassX = 0;
-        root->centerOfMassY = 0;
-        root->particle = NULL;
-        root->particleMass = NULL;
-        root->topLeftTree = NULL;
-        root->botRightTree = NULL;
-        root->botLeftTree = NULL;
-        root->topRightTree = NULL;
+        Quad *root = NULL;
 
         for (int i = 0; i < N; i++)
         {
-            insert(root, &particles[i], &mass[i]);
+            insert(&root, &posX[i], &posY[i], &velX[i], &velY[i], &mass[i], 0.0, 1.0, 1.0, 0.0);
         }
 
         updateMass(root);
@@ -458,15 +404,19 @@ int main(int argc, char **argv)
 #pragma omp parallel for
         for (int i = 0; i < N; i++)
         {
-            calculateForces(root, &particles[i], &forcesX[i], &forcesY[i], mass[i]);
+            calculateForces(root, &posX[i], &posY[i], &velX[i], &velY[i], &forcesX[i], &forcesY[i], mass[i]);
         }
-#pragma omp parallel for
         for (int i = 0; i < N; i++)
         {
-            *particles[i].velX += 0.5 * delta_t * (forcesX[i] * inv_mass[i] + accelerationsX[i]);
-            *particles[i].velY += 0.5 * delta_t * (forcesY[i] * inv_mass[i] + accelerationsY[i]);
+            velX[i] += delta_t * (forcesX[i] * inv_mass[i]);
+            velY[i] += delta_t * (forcesY[i] * inv_mass[i]);
+            posX[i] += delta_t * velX[i];
+            posY[i] += delta_t * velY[i];
         }
-
+        if (step == 0)
+        {
+            printAllParticles(posX, posY, velX, velY, mass, brightness, N);
+        }
         destroyQuadtree(root);
         root = NULL;
     }
@@ -477,7 +427,6 @@ int main(int argc, char **argv)
     free(posY);
     free(velX);
     free(velY);
-    free(particles);
     free(forcesX);
     free(forcesY);
     free(mass);
@@ -486,7 +435,7 @@ int main(int argc, char **argv)
     free(accelerationsY);
     free(brightness);
 
-    double totalTimeTaken = get_wall_seconds() - startTime1;
+    double totalTimeTaken = omp_get_wtime() - startTime1;
     printf("totalTimeTaken = %f\n", totalTimeTaken);
     return 0;
 }
