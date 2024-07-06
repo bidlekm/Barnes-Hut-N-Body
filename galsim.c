@@ -318,7 +318,7 @@ void printQuadtree(const Quad *quad, int depth)
 
 int main(int argc, char **argv)
 {
-    double startTime1 = omp_get_wtime();
+
     if (argc != 7)
     {
         printf("Not enough parameters, only %d provided\n", argc);
@@ -366,30 +366,31 @@ int main(int argc, char **argv)
         free(brightness);
         return -1;
     }
-    //     Quad *root = NULL;
-    //     for (int i = 0; i < N; i++)
-    //     {
-    //         insert(&root, &posX[i], &posY[i], &velX[i], &velY[i], &mass[i], 0.0, 1.0, 1.0, 0.0);
-    //     }
-    //     updateMass(root);
-    //     printQuadtree(root, 1);
-    // #pragma omp parallel for schedule(dynamic)
-    //     for (int i = 0; i < N; i++)
-    //     {
-    //         calculateForces(root, &posX[i], &posY[i], &velX[i], &velY[i], &forcesX[i], &forcesY[i], mass[i]);
-    //     }
-    //     destroyQuadtree(root);
-    //     root = NULL;
+    double startTime1 = omp_get_wtime();
+
+    Quad *root = NULL;
+    for (int i = 0; i < N; i++)
+    {
+        insert(&root, &posX[i], &posY[i], &velX[i], &velY[i], &mass[i], 0.0, 1.0, 1.0, 0.0);
+    }
+    updateMass(root);
+#pragma omp parallel for schedule(dynamic)
+    for (int i = 0; i < N; i++)
+    {
+        calculateForces(root, &posX[i], &posY[i], &velX[i], &velY[i], &forcesX[i], &forcesY[i], mass[i]);
+    }
+    destroyQuadtree(root);
+    root = NULL;
+    // MAIN LOOP
     for (int step = 0; step < nsteps; step++)
     {
-        // #pragma omp parallel for
-        //         for (int i = 0; i < N; i++)
-        //         {
-        //             accelerationsX[i] = forcesX[i] * inv_mass[i];
-        //             accelerationsY[i] = forcesY[i] * inv_mass[i];
-        //             posX[i] += delta_t * (velX[i]) + 0.5 * delta_t * delta_t * accelerationsX[i];
-        //             posY[i] += delta_t * (velY[i]) + 0.5 * delta_t * delta_t * accelerationsY[i];
-        //         }
+        for (int i = 0; i < N; i++)
+        {
+            accelerationsX[i] = forcesX[i] * inv_mass[i];
+            accelerationsY[i] = forcesY[i] * inv_mass[i];
+            posX[i] += (delta_t * velX[i]) + (0.5 * delta_t * delta_t * accelerationsX[i]);
+            posY[i] += (delta_t * velY[i]) + (0.5 * delta_t * delta_t * accelerationsY[i]);
+        }
         memset(forcesX, 0, N * sizeof(double));
         memset(forcesY, 0, N * sizeof(double));
         Quad *root = NULL;
@@ -406,20 +407,17 @@ int main(int argc, char **argv)
         {
             calculateForces(root, &posX[i], &posY[i], &velX[i], &velY[i], &forcesX[i], &forcesY[i], mass[i]);
         }
+
         for (int i = 0; i < N; i++)
         {
-            velX[i] += delta_t * (forcesX[i] * inv_mass[i]);
-            velY[i] += delta_t * (forcesY[i] * inv_mass[i]);
-            posX[i] += delta_t * velX[i];
-            posY[i] += delta_t * velY[i];
-        }
-        if (step == 0)
-        {
-            printAllParticles(posX, posY, velX, velY, mass, brightness, N);
+            velX[i] += 0.5 * delta_t * (forcesX[i] * inv_mass[i] + accelerationsX[i]);
+            velY[i] += 0.5 * delta_t * (forcesY[i] * inv_mass[i] + accelerationsY[i]);
         }
         destroyQuadtree(root);
         root = NULL;
     }
+
+    double totalTimeTaken = omp_get_wtime() - startTime1;
 
     writeParticlesToFile(posX, posY, velX, velY, mass, brightness, N);
 
@@ -435,7 +433,6 @@ int main(int argc, char **argv)
     free(accelerationsY);
     free(brightness);
 
-    double totalTimeTaken = omp_get_wtime() - startTime1;
     printf("totalTimeTaken = %f\n", totalTimeTaken);
     return 0;
 }
